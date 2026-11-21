@@ -9,8 +9,13 @@ from app.tickets.dependencies import get_accessible_ticket
 from app.tickets.models import Ticket
 from app.tickets.schemas import TicketCreate, TicketRead, TicketStatusUpdate
 
+import logging
+
+from app.tickets.tasks import notify_ticket_created
+
 router = APIRouter(prefix="/tickets", tags=["tickets"])
 
+logger = logging.getLogger(__name__)
 
 @router.post("", response_model=TicketRead, status_code=status.HTTP_201_CREATED)
 def create_ticket(
@@ -18,7 +23,12 @@ def create_ticket(
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ):
-    return service.create_ticket(db, data, current_user)
+    ticket = service.create_ticket(db, data, current_user)
+    try:
+        notify_ticket_created.delay(ticket.id)
+    except Exception:
+        logger.exception("Failed to enqueue notification for ticket %s", ticket.id)
+    return ticket
 
 
 @router.get("", response_model=list[TicketRead])
